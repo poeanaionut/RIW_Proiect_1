@@ -194,7 +194,7 @@ public class Indexer {
                         System.out.println("\nRezultatele cautarii:");
                         for (Map.Entry<String, Double> resultDoc : vectorSearchResults) {
                             System.out.println("\t" + resultDoc.getKey() + " (relevanta "
-                                    + (double) Math.round(resultDoc.getValue() * 100.0) / 1.0 + "%)");
+                                    + (double) Math.round(resultDoc.getValue() * 10000.0) / 1.0 + " %..)");
                         }
                         System.out.println("OK (" + vectorSearchResults.size() + " rezultate gasite in ");
                         System.out.println((double) timeDifference / 1000 + " secunde)");

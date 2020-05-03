@@ -135,23 +135,32 @@ public class VectorSearch {
         int numberOfCommonWords = 0;
 
         for (String word : queryFile.keySet()) {
+
+            tfIdf1 = queryFile.get(word);
+        
             if (file.containsKey(word)) {
+                
                 numberOfCommonWords++;
-                tfIdf1 = file.get(word);
-                tfIdf2 = queryFile.get(word);
+                tfIdf2 = file.get(word);
                 dotProd += Math.abs(tfIdf1 * tfIdf2);
-                sumSquareLeft += tfIdf1 * tfIdf1;
-                sumSquareRight += tfIdf2 * tfIdf2;
             }
+
+            sumSquareLeft += tfIdf1 * tfIdf1;
         }
+
 
         if (dotProd == 0 || numberOfCommonWords == 0) {
             return 0;
         }
 
+        for(String word :file.keySet())
+        {
+            sumSquareRight += file.get(word)* file.get(word);
+        }
+
         Double similarity = dotProd / Math.sqrt(sumSquareLeft) / Math.sqrt(sumSquareRight);
 
-        return similarity * numberOfCommonWords / queryFile.size();
+        return similarity;
     }
 
     static <K, V extends Comparable<? super V>> SortedSet<Map.Entry<K, V>> entriesSortedByValues(Map<K, V> map) {

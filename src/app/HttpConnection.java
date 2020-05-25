@@ -1,25 +1,14 @@
 package app;
 
 import java.io.BufferedInputStream;
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetAddress;
+import java.net.MalformedURLException;
 import java.net.Socket;
 import java.net.URL;
-import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.logging.FileHandler;
 import java.util.logging.Logger;
 
 public class HttpConnection {
@@ -28,61 +17,19 @@ public class HttpConnection {
     private static final String PROTOCOL = "Protocol";
     private static final String LOCATION = "Location";
     private static final String CONTENT_LENGTH = "Content-Length";
-    private static final String CONNECTION = "Connection";
-    private static final String LAST_MODIFIED = "Last-Modified";
-    private static final String DATE = "Date";
 
-    private static final int BUFF_MAX_SIZE = 8 * 30000;
-
-    private final int port = 80;
+    private int port;
     private String ipAddress;
-    public static final int MAX_TRIES = 5;
+    private static final int MAX_TRIES = 5;
     private static Logger logger;
-    private static FileHandler fileHandler;
+    //private static FileHandler fileHandler;
 
-    public HttpConnection(String IpAddress) throws SecurityException, IOException {
+    public HttpConnection(String IpAddress, int port) {
+        this.port = port;
         ipAddress = IpAddress;
-        fileHandler = new FileHandler("httpConnection.log", true);
-        logger = Logger.getLogger("HTTP_CONNECTION");
-        logger.addHandler(fileHandler);
-    }
-
-    public void saveToFile(UrlInformation urlInformation, byte[] body) throws IOException {
-
-        File domainDir = new File("crawl/" + urlInformation.url.getAuthority());
-        if (!domainDir.exists()) {
-            domainDir.mkdir();
-        }
-
-        File pageFile = new File(domainDir.getAbsolutePath() + urlInformation.url.getPath());
-        // daca resursa este director/fisier
-        // este fisier
-        if (urlInformation.url.getPath().contains(".")) {
-            if (pageFile.exists()) {
-                urlInformation.absPath = pageFile.getAbsolutePath();
-                return;
-            }
-            pageFile.createNewFile();
-            FileOutputStream fos = new FileOutputStream(pageFile);
-            fos.write(body);
-            fos.close();
-            urlInformation.absPath = pageFile.getAbsolutePath();
-        } else {
-
-            pageFile.mkdir();
-            File pageFileIndex = new File(pageFile.getAbsolutePath() + "\\index.html");
-            if (pageFileIndex.exists()) {
-                urlInformation.absPath = pageFile.getAbsolutePath() + "\\index.html";
-                return;
-            }
-
-            pageFileIndex.createNewFile();
-
-            FileOutputStream fos = new FileOutputStream(pageFileIndex);
-            fos.write(body);
-            fos.close();
-            urlInformation.absPath = pageFileIndex.getAbsolutePath();
-        }
+        // fileHandler = new FileHandler("httpConnection.log", true);
+        // logger = Logger.getLogger("HTTP_CONNECTION");
+        // logger.addHandler(fileHandler);
     }
 
     // trimite cererea catre un link
@@ -91,7 +38,7 @@ public class HttpConnection {
         StringBuilder sb = new StringBuilder();
 
         // link format http://domain/resource
-        String authority = UrlInformation.url.getAuthority();
+        String authority = UrlInformation.url.getHost();
         String resource = UrlInformation.url.getPath();
 
         sb.append("GET");
@@ -116,49 +63,46 @@ public class HttpConnection {
 
         BufferedInputStream bufferedInputStream = new BufferedInputStream(socket.getInputStream());
 
-        // TODO: tratat cazul in care nu primesc niciun raspuns de la server 
+        // TODO: tratat cazul in care nu primesc niciun raspuns de la server
         sb.setLength(0);
         // read the response header
         // trebuie sa gasesc 2 \r\n consecutive
         // sadds \r\n
         // \r\n
         int read = bufferedInputStream.read();
-        int i=0;
+        int i = 0;
         byte[] header = new byte[512];
-        header[0]=(byte)read;
+        header[0] = (byte) read;
         while (read != -1) {
-        
+
             read = bufferedInputStream.read();
-            if(read==13)
-            {
+            if (read == 13) {
                 continue;
             }
-            header[i] =(byte) read;
+            header[i] = (byte) read;
 
-            if(header.length>4 && header[i]==0x0A && header[i-1] ==0x0A)
-            {
+            if (header.length > 4 && header[i] == 0x0A && header[i - 1] == 0x0A) {
                 break;
             }
             ++i;
-           
+
         }
 
-
-        header[i]=0;
-        header[i-1]=0;
-        header[i-2]=0;
-        header[i-3]=0;
+        header[i] = 0;
+        header[i - 1] = 0;
+        header[i - 2] = 0;
+        header[i - 3] = 0;
         String responseHeader = new String(header);
 
         Map<String, String> responseHeaderMap = parseResponseHeader(responseHeader);
         int statusCode = Integer.parseInt(responseHeaderMap.get(STATUS_CODE));
 
-
         int messageLength = Integer.parseInt(responseHeaderMap.get(CONTENT_LENGTH));
         byte[] body = new byte[messageLength];
         int readBytes = bufferedInputStream.read(body, 0, messageLength);
-        System.out.println("Link:\t" + UrlInformation.url.toString() + "\nBytesRead:\t" + readBytes
-                + "\tMessageLength:\t" + messageLength + "\n");
+        // System.out.println("Link:\t" + UrlInformation.url.toString() +
+        // "\nBytesRead:\t" + readBytes
+        // + "\tMessageLength:\t" + messageLength + "\n");
 
         switch (statusCode) {
             // eroare server
@@ -235,7 +179,9 @@ public class HttpConnection {
             case 200:
                 UrlInformation.nrOfTries = 1;
                 UrlInformation.isVisited = true;
-                saveToFile(UrlInformation, body);
+                UrlInformation.textBody = new String(body);
+
+                // saveToFile(UrlInformation, body);
                 break;
             default:
                 break;
@@ -256,33 +202,31 @@ public class HttpConnection {
 
         for (int i = 1; i < headerElements.length; ++i) {
 
-                String[] headerLine = headerElements[i].split(": ");
-                responseHeaderMap.put(headerLine[0], headerLine[1]);
-                System.out.println(headerLine[0] + " " + headerLine[1]);
+            String[] headerLine = headerElements[i].split(": ");
+            responseHeaderMap.put(headerLine[0], headerLine[1]);
+            // System.out.println(headerLine[0] + " " + headerLine[1]);
         }
 
         return responseHeaderMap;
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws MalformedURLException, IOException {
 
         HttpConnection httpConnection;
         long startTime = System.currentTimeMillis();
-        try {
-            httpConnection = new HttpConnection("67.207.88.228");
-            try {
-                httpConnection
-                        .sendRequest(new UrlInformation(new URL("http://riweb.tibeica.com/crawl/pyapi-filter.html")));
-            } catch (IOException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
-            }
-        } catch (SecurityException | IOException e1) {
-            // TODO Auto-generated catch block
-            e1.printStackTrace();
-        }
+            httpConnection = new HttpConnection("67.207.88.228", 80);
+            httpConnection.sendRequest(new UrlInformation(new URL("http://riweb.tibeica.com/crawl/pyapi-filter.html")));
+        
         long stopTime = System.currentTimeMillis();
         System.out.println("Page time:\t" + (stopTime - startTime) / 1000.0 + " secunde");
 
     }
+
+	public void setIpAddress(String ipAddress2) {
+        ipAddress = ipAddress2;
+	}
+
+	public String getIpAddress() {
+		return ipAddress;
+	}
 }

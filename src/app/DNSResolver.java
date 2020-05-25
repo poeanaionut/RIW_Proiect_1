@@ -11,12 +11,14 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 public class DNSResolver {
-    private static final String ip = "192.168.1.1";
+    private static final byte[] ip = {(byte)192,(byte)168,(byte)1,(byte)1};
     private static final int port = 53;
 
-    static void processError(int errorCode) {
+    static void processError(int errorCode, String url) {
+        System.out.println(url);
         switch (errorCode) {
             case 1:
+                
                 System.out.println("Format error - the name server was unable to interpret the querry");
                 break;
             case 2:
@@ -36,6 +38,7 @@ public class DNSResolver {
             default:
                 break;
         }
+        System.out.println();
     }
 
     // afisam request-ul/ response-ul
@@ -108,7 +111,7 @@ public class DNSResolver {
             int ttl = response[idx + 1] << 24 | response[idx + 2] << 16 | response[idx + 3] << 8
                     | (response[idx + 4] & 0xff);
             idx += 4;
-            long cacheTime = ttl + System.currentTimeMillis();
+            long cacheTime = ttl + System.currentTimeMillis()/1000;
             sb.append(cacheTime);
             sb.append("\n");
 
@@ -133,7 +136,11 @@ public class DNSResolver {
                     adress.toString(), cacheTime);
             rDnsRecords.add(dnsRecord);
         }
-        return rDnsRecords.stream().filter(r -> r.type.equals("1")).collect(Collectors.toList()).get(0);
+        if (rDnsRecords.size() > 0) {
+            return rDnsRecords.stream().filter(r -> r.type.equals("1")).collect(Collectors.toList()).get(0);
+        } else {
+            return null;
+        }
     }
 
     static DnsRecord sendRequest(URL url) throws IOException {
@@ -141,7 +148,7 @@ public class DNSResolver {
         final byte request[] = new byte[60];
         final byte response[] = new byte[512];
 
-        long startTime = System.currentTimeMillis();
+        //long startTime = System.currentTimeMillis();
         // dns header - 12 bytes
         // message id 16 biti - este copiat de catre server in raspuns
         request[0] = 0x00;
@@ -154,7 +161,7 @@ public class DNSResolver {
         // tc - 1 bit - truncation flag, cam setatde catre server pentru a indica daca
         // mesajul a fost trunchiat sau nu
         // rd - 1 bit - recursion desired - setat de catre client
-        request[2] = 0x00;
+        request[2] = (byte)0x01;
 
         // ra - 1 bit - recursion available - setat de catre server
         // z - 3 biti - zero, camp cu valoare implicita zero
@@ -214,7 +221,7 @@ public class DNSResolver {
 
         datagramSocket.setSoTimeout(3000);
 
-        InetAddress IP = InetAddress.getByName(ip);
+        InetAddress IP = InetAddress.getByAddress(ip);
         DatagramPacket requestPacket = new DatagramPacket(request, idx, IP, port);
 
         datagramSocket.send(requestPacket);
@@ -224,10 +231,9 @@ public class DNSResolver {
 
         datagramSocket.close();
 
-
         if ((response[3] & 0x0f) != 0x00) {
             {
-                processError(response[3] & 0x0f);
+                processError(response[3] & 0x0f, url.toString());
                 return null;
             }
         } else { // request succesfully processed
@@ -235,18 +241,17 @@ public class DNSResolver {
             // check anwser count
             int answerCount = (response[6] << 8) | response[7];
             if (answerCount == 0) {
-                System.out.println("No answer from server! End execution");
+                System.out.println( url.toString() + "\tNo answer from server! End execution\n");
                 return null;
             }
 
             DnsRecord dnsRecord = parseResponse(idx - 1, response);
             System.out.println(dnsRecord.toString());
-            
-            long stopTime = System.currentTimeMillis();
-            System.out.println("DnsTime:\t" + (stopTime-startTime)/1000.0);
-            
-            return dnsRecord;
 
+            //long stopTime = System.currentTimeMillis();
+            //System.out.println("DnsTime:\t" + (stopTime - startTime) / 1000.0);
+
+            return dnsRecord;
         }
 
     }
@@ -260,5 +265,4 @@ public class DNSResolver {
             e.printStackTrace();
         }
     }
-
 }

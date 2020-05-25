@@ -8,12 +8,14 @@ public class UrlInformation {
     public int nrOfTries;
     public boolean isIgnored;
     public boolean isVisited;
+    public String textBody;
 
     public UrlInformation(URL Url) {
         url = Url;
         isIgnored = false;
         nrOfTries = 0;
         isVisited = false;
+        textBody = "";
     }
 
     public String toString()

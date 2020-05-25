@@ -1,6 +1,7 @@
 package app;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
@@ -9,13 +10,92 @@ import java.util.LinkedList;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+
+import javax.sound.sampled.Port;
 
 import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 
 public class WebCrawlerSecvential {
+    private static volatile Queue<UrlInformation> urlFontier = new LinkedList<>();
+    private static volatile Map<String, WebsiteInfo> domainMap = new HashMap<>();
+    private static volatile HttpConnection httpConnection;
+        
+
+    public static void saveToFile(UrlInformation urlInformation) throws IOException {
+
+        File domainDir = new File("crawl/" + urlInformation.url.getHost());
+        if (!domainDir.exists()) {
+            domainDir.mkdirs();
+        }
+
+        File pageFile = new File(domainDir.getAbsolutePath() + urlInformation.url.getPath());
+        // este fisier
+        if (urlInformation.url.getPath().contains(".")) {
+            File dir = pageFile.getParentFile();
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+            if (pageFile.exists()) {
+                urlInformation.absPath = pageFile.getAbsolutePath();
+                return;
+            }
+            pageFile.createNewFile();
+            FileOutputStream fos = new FileOutputStream(pageFile);
+            fos.write(urlInformation.textBody.getBytes());
+            fos.close();
+            urlInformation.absPath = pageFile.getAbsolutePath();
+        } else {
+
+            pageFile.mkdirs();
+            File pageFileIndex = new File(pageFile.getAbsolutePath() + "\\index.html");
+            if (pageFileIndex.exists()) {
+                urlInformation.absPath = pageFile.getAbsolutePath() + "\\index.html";
+                return;
+            }
+
+            pageFileIndex.createNewFile();
+
+            FileOutputStream fos = new FileOutputStream(pageFileIndex);
+            fos.write(urlInformation.textBody.getBytes());
+            fos.close();
+            urlInformation.absPath = pageFileIndex.getAbsolutePath();
+        }
+    }
+
+    public static void getUrls(WebsiteInfo wInfo, Document doc, Queue<UrlInformation> urlFontier) throws IOException{
+        Set<String> pageUrls = wInfo.getLinks(doc);
+
+        for (String urlString : pageUrls) {
+            try {
+                URL url = new URL(urlString);
+                // daca url-ul curent este deja vizitat
+                // sau in lista de url-uri ignorate
+                // sau nu foloseste protocolul http
+                // il ignoram
+                if (UrlSet.ignoredUrls.contains(urlString) || UrlSet.visitedUrls.contains(urlString)
+                        || !url.getProtocol().equals("http")) {
+                    continue;
+                }
+                UrlInformation currentUrlInf = new UrlInformation(url);
+                urlFontier.add(currentUrlInf);
+            } catch (Exception e) {
+                //TODO: handle exception
+            }
+          
+        }
+    }
 
     public static void main(String[] args) throws IOException, URISyntaxException {
 
+        File clearFile = new File("crawl/");
+        if (clearFile.exists()) {
+            clearFile.delete();
+        }
+
+        long startTime = System.currentTimeMillis();
         URL urlSeed = new URL("http://riweb.tibeica.com/crawl/");
 
         DnsRecord dnsSeed = DNSResolver.sendRequest(urlSeed);
@@ -25,37 +105,67 @@ public class WebCrawlerSecvential {
             return;
         }
 
-        HttpConnection httpConnection = new HttpConnection(dnsSeed.adress);
+        httpConnection = new HttpConnection(dnsSeed.adress, 80);
 
         UrlInformation urlInfRobots = new UrlInformation(new URL("http://riweb.tibeica.com/robots.txt"));
         httpConnection.sendRequest(urlInfRobots);
+        saveToFile(urlInfRobots);
+
 
         UrlInformation urlInfSeed = new UrlInformation(urlSeed);
-        Map<String, WebsiteInfo> domainMap = new HashMap<>();
-        Queue<UrlInformation> urlFontier = new LinkedList<>();
+
+       
 
         if (urlInfRobots.absPath != null) {
-            WebsiteInfo websiteInfo = new WebsiteInfo(urlInfSeed.absPath, urlInfSeed.url.getAuthority());
+            
+            WebsiteInfo websiteInfo = new WebsiteInfo("C:\\Users\\ionut\\source\\repos\\RIW\\Proiect_1\\crawl\\riweb.tibeica.com\\", urlInfSeed.url.getHost(),
+                    httpConnection.getIpAddress(), dnsSeed.cacheTime);
             websiteInfo.hasRobots = true;
-            domainMap.put(urlInfSeed.url.getAuthority(), websiteInfo);
+            domainMap.put(urlInfSeed.url.getHost(), websiteInfo);
 
             urlFontier.add(urlInfSeed);
 
+
             // la inceput presupun ca am voie pe toate linkurile din domeniu
-            while (!urlFontier.isEmpty()) {
+            while (!urlFontier.isEmpty() && UrlSet.visitedUrls.size() < 100) {
                 UrlInformation urlInf = urlFontier.remove();
 
-                // verifica daca exista vreo intrare pentru domeniul url-ului in domainMap
-                if (domainMap.get(urlInf.url.getAuthority()) == null) {
-                    try {
-                    UrlInformation urlRobotsInf = new UrlInformation(new URL(urlInf.url.getProtocol(), urlInf.url.getHost(), "/robots.txt"));
+                // verific daca domeniul respectiv n-a mai fost vizitat intr-o iteratie
+                // anterioara si ignorat
+                if (UrlSet.ignoredUrls.contains(urlInf.url.getHost())) {
+                    continue;
+                }
+
+                // verifica daca nu exista vreo intrare pentru domeniul url-ului in domainMap
+                if (!domainMap.containsKey(urlInf.url.getHost())  || domainMap.get(urlInf.url.getHost()).cacheHasExpired()) {
+
+                    if(domainMap.containsKey(urlInf.url.getHost()))
+                    {
+                        domainMap.remove(urlInf.url.getHost());
+                    }
+
+                    URL newDomain = new URL(urlInf.url.getProtocol(), urlInf.url.getHost(), "");
+                    DnsRecord dnsRecord = DNSResolver.sendRequest(newDomain);
+
+                    // daca serverul dns nu poate gasi domeniul
+                    if (dnsRecord == null) {
+                        UrlSet.ignoredUrls.add(newDomain.getHost());
+                        continue;
+                    }
+                    UrlInformation urlRobotsInf = new UrlInformation(
+                            new URL(urlInf.url.getProtocol(), urlInf.url.getHost(), "/robots.txt"));
+                    // System.out.println("Url "+urlInf.url.toString());
+                    // System.out.println("host " + urlInf.url.getHost());
+                    // System.out.println("robotsUrl "+ urlRobotsInf.url.toString());
+                    httpConnection.setIpAddress( dnsRecord.adress);
                     httpConnection.sendRequest(urlRobotsInf);
+                    saveToFile(urlInfRobots);
 
                     // daca avem doar un url in url frontier si inca nu am epuizat incercarile
                     // il adaugam in coada si asteptam 2 secunde
                     if (!urlRobotsInf.isVisited && !urlRobotsInf.isIgnored && urlFontier.isEmpty()) {
                         try {
-                            Thread.sleep(2000);
+                            Thread.sleep(1000);
                         } catch (InterruptedException e) {
                             // TODO: handle exception
                         }
@@ -65,27 +175,28 @@ public class WebCrawlerSecvential {
 
                     // avem robots.txt
                     if (urlRobotsInf.absPath != null) {
-                        WebsiteInfo wInfo = new WebsiteInfo(urlRobotsInf.absPath, urlRobotsInf.url.getAuthority());
+                        WebsiteInfo wInfo = new WebsiteInfo(urlRobotsInf.absPath, urlRobotsInf.url.getHost(),
+                                dnsRecord.adress, dnsRecord.cacheTime);
                         wInfo.hasRobots = true;
-                        domainMap.put(urlRobotsInf.url.getAuthority(), wInfo);
+                        domainMap.put(urlRobotsInf.url.getHost(), wInfo);
                     } else {
                         // nu avem robots.txt
-                        WebsiteInfo wInfo = new WebsiteInfo(urlRobotsInf.absPath, urlRobotsInf.url.getAuthority());
+                        WebsiteInfo wInfo = new WebsiteInfo(urlRobotsInf.absPath, urlRobotsInf.url.getHost(),
+                                dnsRecord.adress, dnsRecord.cacheTime);
                         wInfo.hasRobots = false;
-                        domainMap.put(urlRobotsInf.url.getAuthority(), wInfo);
+                        domainMap.put(urlRobotsInf.url.getHost(), wInfo);
+                        domainMap.put(urlInf.url.getHost(), wInfo);
                     }
-                    } catch (Exception e) {
-                        //TODO: handle exception
-                        System.out.println(urlInf.url.getHost() + "/robots.txt");
-                        e.printStackTrace();
-                    }
-                   
+
                 }
-                
-                WebsiteInfo wInfo = domainMap.get(urlInf.url.getAuthority());
+
+                WebsiteInfo wInfo = domainMap.get(urlInf.url.getHost());
+
                 if (wInfo.hasRobots) {
                     // daca avem acces la fisierul respectiv
                     if (wInfo.allows(urlInf.url.getFile())) {
+
+                        httpConnection.setIpAddress(wInfo.ipAddress);
                         httpConnection.sendRequest(urlInf);
 
                         // daca nu reusim sa descarcam contentul url-ului acum, incercam intr-o iteratie
@@ -105,24 +216,38 @@ public class WebCrawlerSecvential {
                         // daca url-ul este vizitat si nr de url-uri vizitate este sub 100,
                         // il adaugam la lista de url-uri vizitate
 
-                        if (urlInf.isVisited && UrlSet.visitedUrls.size() < 100) {
+                        if (urlInf.isVisited) {
                             UrlSet.visitedUrls.add(urlInf.url.toString());
 
-                            Set<String> pageUrls = wInfo
-                                    .getLinks(Jsoup.parse(new File(urlInf.absPath), "UTF-8", urlInf.url.toString()));
+                            Document doc = Jsoup.parse(urlInf.textBody,urlInf.url.toURI().toString());
 
-                            for (String urlString : pageUrls) {
-                                URL url = new URL(urlString);
-                                // daca url-ul curent este deja vizitat
-                                // sau in lista de url-uri ignorate
-                                // sau nu foloseste protocolul http
-                                // il ignoram
-                                if (UrlSet.ignoredUrls.contains(urlString) || UrlSet.visitedUrls.contains(urlString)
-                                        || !url.getProtocol().equals("http")) {
+
+                            // all - am voie sa extrag tot
+                            // none - n-am voie sa extrag nimic
+                            // index - pot extrage continutul pentru a-l pregati pentru functia de indexare
+                            // noindex - nu pot salva local continutul acelei pagini
+                            // follow - am voie sa extrag link-ruile din pagina si sa le procesez
+                            // nofollow - nu am voie sa extrag link-urile din pagina curenta si sa le
+                            String robots =  wInfo.getRobots(doc);
+                            if(robots.contains("none"))
+                            {
+                                continue;
+                            }else if(robots.contains("noindex"))
+                            {
+                                if(robots.contains("nofollow"))
+                                {
                                     continue;
                                 }
-                                UrlInformation currentUrlInf = new UrlInformation(url);
-                                urlFontier.add(currentUrlInf);
+                                getUrls(wInfo,doc,urlFontier);     
+                            }
+                            else if(robots.contains("index"))
+                            {
+                                saveToFile(urlInf);
+                            }
+                            else
+                            {
+                                saveToFile(urlInf);
+                                getUrls(wInfo, doc, urlFontier); 
                             }
                         }
 
@@ -130,6 +255,7 @@ public class WebCrawlerSecvential {
                 } else {
                     // nu avem robots.txt
                     // totul este permis
+                    httpConnection.setIpAddress( wInfo.ipAddress);
                     httpConnection.sendRequest(urlInf);
 
                     // daca nu reusim sa descarcam contentul url-ului acum, incercam intr-o iteratie
@@ -149,25 +275,12 @@ public class WebCrawlerSecvential {
                     // daca url-ul este vizitat si nr de url-uri vizitate este sub 100,
                     // il adaugam la lista de url-uri vizitate
 
-                    if (urlInf.isVisited && UrlSet.visitedUrls.size() < 100) {
+                    if (urlInf.isVisited) {
                         UrlSet.visitedUrls.add(urlInf.url.toString());
 
-                        Set<String> pageUrls = wInfo
-                                .getLinks(Jsoup.parse(new File(urlInf.absPath), "UTF-8", urlInf.url.toString()));
-
-                        for (String urlString : pageUrls) {
-                            URL url = new URL(urlString);
-                            // daca url-ul curent este deja vizitat
-                            // sau in lista de url-uri ignorate
-                            // sau nu foloseste protocolul http
-                            // il ignoram
-                            if (UrlSet.ignoredUrls.contains(urlString) || UrlSet.visitedUrls.contains(urlString)
-                                    || !url.getProtocol().equals("http")) {
-                                continue;
-                            }
-                            UrlInformation currentUrlInf = new UrlInformation(url);
-                            urlFontier.add(currentUrlInf);
-                        }
+                       saveToFile(urlInf);
+                       Document doc = Jsoup.parse(urlInf.textBody, urlInf.url.toURI().toString());
+                       getUrls(wInfo, doc, urlFontier);
                     }
 
                 }
@@ -175,13 +288,17 @@ public class WebCrawlerSecvential {
             }
 
         }
+        long stopTime = System.currentTimeMillis();
+        System.out.println("Timpul de procesare a 100 de fisiere:\t" + (stopTime - startTime) / 1000.0 + " secunde");
 
     }
+
+   
 }
 
-
-//TODO: rezolvat problema cu inputStreamReader
-// salvat in mongo dnsRecords - documente cu numele fisierelor si cu timpul cache-ului
+// TODO: rezolvat problema cu inputStreamReader
+// salvat in mongo dnsRecords - documente cu numele fisierelor si cu timpul
+// cache-ului
 // incarcat acestea cand pornim aplicatia
 // protocol rep la nivel de pagina web
 
@@ -192,12 +309,7 @@ public class WebCrawlerSecvential {
 // verificam daca link-ul a fost sau nu vizitat intr-o iteratie anterioara
 // descarcam continutul paginii respectiva
 // verificam rep protocol
-// all - am voie sa extrag tot
-// none - n-am voie sa extrag nimic
-// index - pot extrage continutul pentru a-l pregati pentru functia de indexare
-// noindex - nu pot salva local continutul acelei pagini
-// follow - am voie sa extrag link-ruile din pagina si sa le procesez
-// nofollow - nu am voie sa extrag link-urile din pagina curenta si sa le
+
 // procesez
 
 // select("a[abs:href]") link-urile in valori absolut

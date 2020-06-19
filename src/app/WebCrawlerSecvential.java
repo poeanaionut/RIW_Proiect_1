@@ -10,10 +10,7 @@ import java.util.LinkedList;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadPoolExecutor;
 
-import javax.sound.sampled.Port;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -40,7 +37,7 @@ public class WebCrawlerSecvential {
             }
             if (pageFile.exists()) {
                 urlInformation.absPath = pageFile.getAbsolutePath();
-                return;
+                return; 
             }
             pageFile.createNewFile();
             FileOutputStream fos = new FileOutputStream(pageFile);
@@ -152,6 +149,7 @@ public class WebCrawlerSecvential {
                         UrlSet.ignoredUrls.add(newDomain.getHost());
                         continue;
                     }
+                    
                     UrlInformation urlRobotsInf = new UrlInformation(
                             new URL(urlInf.url.getProtocol(), urlInf.url.getHost(), "/robots.txt"));
                     // System.out.println("Url "+urlInf.url.toString());

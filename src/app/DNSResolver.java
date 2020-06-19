@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 public class DNSResolver {
-    private static final byte[] ip = {(byte)192,(byte)168,(byte)1,(byte)1};
+    private static final byte[] ip = {(byte)192,(byte)168,(byte)0,(byte)1};
     private static final int port = 53;
 
     static void processError(int errorCode, String url) {
@@ -145,7 +145,7 @@ public class DNSResolver {
 
     static DnsRecord sendRequest(URL url) throws IOException {
 
-        final byte request[] = new byte[60];
+        final byte request[] = new byte[100];
         final byte response[] = new byte[512];
 
         //long startTime = System.currentTimeMillis();

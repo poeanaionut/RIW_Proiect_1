@@ -63,7 +63,6 @@ public class HttpConnection {
 
         BufferedInputStream bufferedInputStream = new BufferedInputStream(socket.getInputStream());
 
-        // TODO: tratat cazul in care nu primesc niciun raspuns de la server
         sb.setLength(0);
         // read the response header
         // trebuie sa gasesc 2 \r\n consecutive
@@ -148,7 +147,6 @@ public class HttpConnection {
                     UrlInformation.isIgnored = true;
                     break;
                 } {
-
                 UrlInformation.url = new URL(responseHeaderMap.get(LOCATION));
                 sendRequest(UrlInformation);
             }
